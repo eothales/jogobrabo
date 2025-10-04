@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Brincadeira: Forca / Memória / Labirinto</title>
+  <style>
+    :root{font-family: Arial, Helvetica, sans-serif;color:#222}
+    body{display:flex;flex-direction:column;align-items:center;padding:20px;background:#f4f6f8;margin:0}
+    .container{width:980px;max-width:95%;background:white;padding:18px;border-radius:10px;box-shadow:0 6px 18px rgba(0,0,0,.08)}
+    h1{text-align:center;margin-top:0}
+    .home-buttons{display:flex;gap:12px;justify-content:center;margin:18px 0}
+    button{padding:10px 16px;border-radius:8px;border:1px solid #ccc;background:#fff;cursor:pointer}
+    button.primary{background:#0b79d0;color:#fff;border-color:#0b79d0}
+    .footer{margin-top:14px;text-align:center;color:#666}
+    .hidden{display:none}
+    .center{display:flex;justify-content:center;align-items:center}
+
+    /* Forca */
+    #forca-canvas{background:#fff;border:1px solid #ddd;border-radius:6px;display:block;margin:8px 0}
+    .word{font-size:28px;letter-spacing:8px;margin:12px 0}
+    .hint{color:#555;margin-bottom:8px}
+    .keyboard{display:flex;flex-wrap:wrap;gap:6px;max-width:460px}
+    .keyboard button{width:34px;height:34px;padding:0}
+
+    /* Memória */
+    .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;max-width:520px;margin:12px auto}
+    .card{background:#2b7a9a;color:white;padding:18px;border-radius:8px;font-size:20px;display:flex;justify-content:center;align-items:center;cursor:pointer;user-select:none}
+    .card.flipped{background:#f3f3f3;color:#222}
+    .timer{font-weight:bold;color:red;font-size:20px}
+
+    /* Labirinto */
+    #maze-canvas{background:#fff;border:1px solid #ddd;border-radius:6px;display:block;margin:8px 0}
+    .arrows{display:flex;gap:8px;justify-content:center;margin-top:8px}
+    .message{font-size:22px;margin:12px 0;text-align:center}
+    .message.win{color:green}
+    .message.lose{color:red}
+
+    .back-home{margin-top:10px}
+
+    /* small responsiveness */
+    @media (max-width:520px){
+      .keyboard button{width:28px;height:28px}
+      .word{font-size:22px;letter-spacing:6px}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Brincadeira: Forca / Memória / Labirinto</h1>
+
+    <!-- HOME -->
+    <div id="home">
+      <div class="home-buttons">
+        <button id="btn-forca" class="primary">Forca</button>
+        <button id="btn-memoria">Memória</button>
+        <button id="btn-labirinto">Labirinto</button>
+      </div>
+      <p class="footer">Spotify: ÉoThales</p>
+    </div>
+    <!-- FORCA -->
+    <div id="forca" class="hidden">
+      <button id="voltar-forca">← Voltar</button>
+      <h2>Forca</h2>
+      <p class="hint">Dica: Lugar</p>
+      <canvas id="forca-canvas" width="300" height="240"></canvas>
+      <div class="word" id="forca-word" aria-live="polite"></div>
+      <div>Erros: <span id="forca-errors">0</span> / 5</div>
+      <div class="keyboard" id="keyboard" role="application" aria-label="Teclado de letras"></div>
+      <div id="forca-result" class="message" aria-live="polite"></div>
+      <div class="back-home hidden" id="forca-back"><button id="forca-home">Voltar à página inicial</button></div>
+    </div>
+    <!-- MEMÓRIA -->
+    <div id="memoria" class="hidden">
+      <button id="voltar-memoria">← Voltar</button>
+      <h2>Memória</h2>
+      <p>Encontre os números iguais em sequência. Tempo máximo: <span class="timer" id="mem-timer">60</span> s</p>
+      <div class="grid" id="mem-grid" role="grid"></div>
+      <div id="mem-result" class="message" aria-live="polite"></div>
+      <div class="back-home hidden" id="mem-back"><button id="memoria-home">Voltar à página inicial</button></div>
+    </div>
+    <!-- LABIRINTO -->
+    <div id="labirinto" class="hidden">
+      <button id="voltar-labirinto">← Voltar</button>
+      <h2>Labirinto</h2>
+      <p>Tempo restante: <span class="timer" id="maze-timer">90</span> s</p>
+      <canvas id="maze-canvas" width="420" height="420"></canvas>
+      <div class="arrows" style="margin-top:6px;">
+        <button id="up">▲</button>
+      </div>
+      <div class="arrows">
+        <button id="left">◄</button>
+        <button id="down">▼</button>
+        <button id="right">►</button>
+      </div>
+      <div id="maze-result" class="message" aria-live="polite"></div>
+      <div class="back-home hidden" id="maze-back"><button id="maze-home">Voltar à página inicial</button></div>
+    </div>
+
+  </div> <!-- .container -->
+<script>
+/* ---------- Navegação e reset geral ---------- */
+const sections = ['home','forca','memoria','labirinto'];
+
+// Mostra seção e inicializa jogo correspondente
+function show(id){
+  sections.forEach(s => document.getElementById(s).classList.add('hidden'));
+  document.getElementById(id).classList.remove('hidden');
+
+  // stop timers/animations from other sections
+  stopMemTimer();
+  stopMazeTimer();
+
+  // init specific
+  if(id === 'forca') initForca();
+  if(id === 'memoria') initMemoria();
+  if(id === 'labirinto') initMaze();
+}
+
+// Home buttons
+document.getElementById('btn-forca').addEventListener('click', ()=> show('forca'));
+document.getElementById('btn-memoria').addEventListener('click', ()=> show('memoria'));
+document.getElementById('btn-labirinto').addEventListener('click', ()=> show('labirinto'));
+
+// Voltar (cada seção tem um botão voltar que retorna à home)
+['forca','memoria','labirinto'].forEach(id => {
+  const btn = document.getElementById('voltar-' + id);
+  if(btn) btn.addEventListener('click', ()=> { show('home'); });
+});
+
+// Quando clicar nos botões "Voltar à página inicial" dentro de cada seção
+document.getElementById('forca-home').addEventListener('click', ()=> show('home'));
+document.getElementById('memoria-home').addEventListener('click', ()=> show('home'));
+document.getElementById('maze-home').addEventListener('click', ()=> show('home'));
+
+/* ---------- FORCA (Hangman) ---------- */
+const palavra = 'JERUSALEM';
+const maxErros = 5;
+let erros = 0;
+let acertos = new Set();
+let usedLetters = new Set();
+
+const forcaCanvas = document.getElementById('forca-canvas');
+const fctx = forcaCanvas.getContext('2d');
+
+function initForca(){
+  erros = 0;
+  acertos = new Set();
+  usedLetters = new Set();
+  document.getElementById('forca-errors').textContent = erros;
+  document.getElementById('forca-result').textContent = '';
+  document.getElementById('forca-result').className = 'message';
+  document.getElementById('forca-back').classList.add('hidden');
+  buildKeyboard();
+  renderWord();
+  clearForcaCanvas();
+  drawGallows();
+}
+
+function resetForca(){ initForca(); }
+
+function renderWord(){
+  let parts = [];
+  for(let ch of palavra){
+    parts.push(acertos.has(ch) ? ch : '_');
+  }
+  document.getElementById('forca-word').textContent = parts.join(' ');
+  if(palavra.split('').every(ch => acertos.has(ch))){
+    winForca();
+  }
+}
+
+function buildKeyboard(){
+  const kb = document.getElementById('keyboard');
+  kb.innerHTML = '';
+  for(let i=65;i<=90;i++){
+    const letter = String.fromCharCode(i);
+    const btn = document.createElement('button');
+    btn.textContent = letter;
+    btn.disabled = usedLetters.has(letter);
+    btn.addEventListener('click', ()=> onLetter(letter, btn));
+    kb.appendChild(btn);
+  }
+}
+
+function onLetter(letter, btn){
+  if(usedLetters.has(letter) || erros >= maxErros) return;
+  usedLetters.add(letter);
+  btn.disabled = true;
+  if(palavra.includes(letter)){
+    // reveal all occurrences
+    for(let i=0;i<palavra.length;i++){
+      if(palavra[i] === letter) acertos.add(letter);
+    }
+    renderWord();
+  } else {
+    erros++;
+    document.getElementById('forca-errors').textContent = erros;
+    drawForcaPart(erros);
+    if(erros >= maxErros) loseForca();
+  }
+}
+
+function winForca(){
+  document.getElementById('forca-result').textContent = 'Você Venceu';
+  document.getElementById('forca-result').className = 'message win';
+  document.getElementById('forca-back').classList.remove('hidden');
+}
+
+function loseForca(){
+  document.getElementById('forca-result').textContent = 'Você Perdeu';
+  document.getElementById('forca-result').className = 'message lose';
+  document.getElementById('forca-back').classList.remove('hidden');
+  // disable keyboard
+  document.querySelectorAll('#keyboard button').forEach(b=>b.disabled=true);
+}
+
+/* Canvas draw functions for forca */
+function clearForcaCanvas(){ fctx.clearRect(0,0,forcaCanvas.width,forcaCanvas.height); }
+
+function drawGallows(){
+  fctx.strokeStyle = '#333'; fctx.lineWidth = 4;
+  // base
+  fctx.beginPath(); fctx.moveTo(20,220); fctx.lineTo(120,220); fctx.stroke();
+  // pole
+  fctx.beginPath(); fctx.moveTo(70,220); fctx.lineTo(70,30); fctx.lineTo(200,30); fctx.lineTo(200,50); fctx.stroke();
+}
+
+function drawForcaPart(n){
+  fctx.strokeStyle = '#222'; fctx.fillStyle = '#222'; fctx.lineWidth = 3;
+  switch(n){
+    case 1: // head
+      fctx.beginPath(); fctx.arc(200,75,22,0,Math.PI*2); fctx.stroke(); break;
+    case 2: // body
+      fctx.beginPath(); fctx.moveTo(200,97); fctx.lineTo(200,160); fctx.stroke(); break;
+    case 3: // left arm
+      fctx.beginPath(); fctx.moveTo(200,110); fctx.lineTo(170,140); fctx.stroke(); break;
+    case 4: // right arm
+      fctx.beginPath(); fctx.moveTo(200,110); fctx.lineTo(230,140); fctx.stroke(); break;
+    case 5: // legs
+      fctx.beginPath(); fctx.moveTo(200,160); fctx.lineTo(180,200); fctx.moveTo(200,160); fctx.lineTo(220,200); fctx.stroke(); break;
+  }
+}
+
+/* ---------- MEMÓRIA ---------- */
+let memCards = [];
+let firstPick = null;
+let secondPick = null;
+let pairsFound = 0;
+let memTimer = 60;
+let memInterval = null;
+let memAllow = true;
+let requiredOrder = 1;
+
+function initMemoria(){
+  stopMemTimer();
+  // create pairs 1..10 and shuffle
+  const nums = [];
+  for(let i=1;i<=10;i++){ nums.push(i); nums.push(i); }
+  shuffle(nums);
+  memCards = nums.map((n,idx)=>({id:idx, val:n, flipped:false, found:false}));
+  firstPick = secondPick = null;
+  pairsFound = 0;
+  requiredOrder = 1;
+  memAllow = true;
+  memTimer = 60;
+  document.getElementById('mem-timer').textContent = memTimer;
+  document.getElementById('mem-result').textContent = '';
+  document.getElementById('mem-result').className = 'message';
+  document.getElementById('mem-back').classList.add('hidden');
+  buildMemGrid();
+  startMemTimer();
+}
+
+function resetMemoria(){ stopMemTimer(); }
+
+function buildMemGrid(){
+  const grid = document.getElementById('mem-grid');
+  grid.innerHTML = '';
+  memCards.forEach(card => {
+    const el = document.createElement('div');
+    el.className = 'card' + (card.flipped || card.found ? ' flipped' : '');
+    el.dataset.id = card.id;
+    el.textContent = (card.flipped || card.found) ? card.val : '';
+    el.addEventListener('click', ()=> onCardClick(card, el));
+    grid.appendChild(el);
+  });
+}
+
+function onCardClick(card, el){
+  if(!memAllow || card.flipped || card.found) return;
+  flipCardVisual(card, el);
+  if(!firstPick){
+    firstPick = {card, el};
+  } else if(!secondPick && card.id !== firstPick.card.id){
+    secondPick = {card, el};
+    checkMemPair();
+  }
+}
+
+function flipCardVisual(card, el){
+  card.flipped = true;
+  el.classList.add('flipped');
+  el.textContent = card.val;
+}
+
+function unflip(card, el){
+  card.flipped = false;
+  el.classList.remove('flipped');
+  el.textContent = '';
+}
+
+function checkMemPair(){
+  memAllow = false;
+  const a = firstPick.card, b = secondPick.card;
+  // must be same value and match requiredOrder
+  if(a.val === b.val && a.val === requiredOrder){
+    a.found = b.found = true;
+    pairsFound++;
+    requiredOrder++;
+    setTimeout(()=>{
+      firstPick = secondPick = null;
+      memAllow = true;
+      if(pairsFound >= 10) winMemoria();
+    }, 400);
+  } else {
+    // wrong: restart game (unflip all, mark found=false, reshuffle) but don't reset timer
+    setTimeout(()=>{
+      // reshuffle and reset deck
+      const nums = [];
+      for(let i=1;i<=10;i++){ nums.push(i); nums.push(i); }
+      shuffle(nums);
+      memCards = nums.map((n,idx)=>({id:idx,val:n,flipped:false,found:false}));
+      firstPick = secondPick = null;
+      pairsFound = 0;
+      requiredOrder = 1;
+      memAllow = true;
+      buildMemGrid();
+    }, 600);
+  }
+}
+
+function shuffle(a){ for(let i=a.length-1;i>0;i--){ const j = Math.floor(Math.random()*(i+1)); [a[i], a[j]] = [a[j], a[i]]; } }
+
+function startMemTimer(){
+  stopMemTimer();
+  memInterval = setInterval(()=>{
+    memTimer--;
+    document.getElementById('mem-timer').textContent = memTimer;
+    if(memTimer <= 0){
+      stopMemTimer();
+      loseMemoria();
+    }
+  }, 1000);
+}
+
+function stopMemTimer(){ if(memInterval){ clearInterval(memInterval); memInterval = null; } }
+
+function winMemoria(){
+  stopMemTimer();
+  document.getElementById('mem-result').textContent = 'Você Venceu';
+  document.getElementById('mem-result').className = 'message win';
+  document.getElementById('mem-back').classList.remove('hidden');
+}
+
+function loseMemoria(){
+  document.getElementById('mem-result').textContent = 'Você Perdeu';
+  document.getElementById('mem-result').className = 'message lose';
+  document.getElementById('mem-back').classList.remove('hidden');
+}
+
+/* ---------- LABIRINTO ---------- */
+/* Maze settings: more difficult map (14x14) */
+const mazeCanvas = document.getElementById('maze-canvas');
+const mctx = mazeCanvas.getContext('2d');
+const cols = 14, rows = 14;
+const cell = 28; // slightly smaller to fit 420
+const offset = 6; // margin
+// 1 = wall, 0 = free
+const mazeMap = [
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,0,1,0,0,0,1,0,0,0,1,0,0,1],
+  [1,0,1,0,1,0,1,0,1,0,1,0,1,1],
+  [1,0,0,0,1,0,0,0,1,0,0,0,0,1],
+  [1,1,1,0,1,1,1,0,1,1,1,1,0,1],
+  [1,0,0,0,0,0,1,0,0,0,0,1,0,1],
+  [1,0,1,1,1,0,1,1,1,1,0,1,0,1],
+  [1,0,0,0,1,0,0,0,0,1,0,0,0,1],
+  [1,1,1,0,1,1,1,1,0,1,1,1,0,1],
+  [1,0,0,0,0,0,0,1,0,0,0,1,0,1],
+  [1,0,1,1,1,1,0,1,1,1,0,1,0,1],
+  [1,0,0,0,0,0,0,0,0,1,0,0,0,1],
+  [1,0,1,1,1,1,1,1,0,1,1,1,0,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+];
+let player = {r:1, c:1};
+const exitCell = {r:11, c:12}; // exit coordinate
+let mazeTimer = 90;
+let mazeInterval = null;
+
+function initMaze(){
+  stopMazeTimer();
+  player = {r:1, c:1};
+  mazeTimer = 90;
+  document.getElementById('maze-timer').textContent = mazeTimer;
+  document.getElementById('maze-result').textContent = '';
+  document.getElementById('maze-result').className = 'message';
+  document.getElementById('maze-back').classList.add('hidden');
+  drawMaze();
+  startMazeTimer();
+}
+
+function drawMaze(){
+  mctx.clearRect(0,0,mazeCanvas.width,mazeCanvas.height);
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const x = c*cell + offset;
+      const y = r*cell + offset;
+      if(mazeMap[r][c] === 1){
+        mctx.fillStyle = '#222';
+        mctx.fillRect(x, y, cell-2, cell-2);
+      } else {
+        mctx.fillStyle = '#fff';
+        mctx.fillRect(x, y, cell-2, cell-2);
+        mctx.strokeStyle = '#ccc';
+        mctx.strokeRect(x, y, cell-2, cell-2);
+      }
+    }
+  }
+  // draw exit as green square
+  mctx.fillStyle = '#8bc34a';
+  mctx.fillRect(exitCell.c*cell + offset + 4, exitCell.r*cell + offset + 4, cell-10, cell-10);
+  drawPlayer();
+}
+
+function drawPlayer(){
+  const x = player.c*cell + offset + cell/2 - 1;
+  const y = player.r*cell + offset + cell/2 - 1;
+  // clear only player area by redrawing maze cell under it (safer to redraw whole maze)
+  drawMazeGridCell(player.r, player.c); // draws cell background
+  mctx.beginPath();
+  mctx.fillStyle = '#2196f3';
+  mctx.arc(x, y, 8, 0, Math.PI*2);
+  mctx.fill();
+}
+
+function drawMazeGridCell(r, c){
+  // draw the single cell background (used before drawing player)
+  const x = c*cell + offset;
+  const y = r*cell + offset;
+  if(mazeMap[r][c] === 1){
+    mctx.fillStyle = '#222';
+    mctx.fillRect(x, y, cell-2, cell-2);
+  } else {
+    mctx.fillStyle = '#fff';
+    mctx.fillRect(x, y, cell-2, cell-2);
+    mctx.strokeStyle = '#ccc';
+    mctx.strokeRect(x, y, cell-2, cell-2);
+  }
+}
+
+function canMove(r, c){
+  if(r < 0 || c < 0 || r >= rows || c >= cols) return false;
+  return mazeMap[r][c] === 0 || (r === exitCell.r && c === exitCell.c);
+}
+
+function movePlayer(dr, dc){
+  const nr = player.r + dr;
+  const nc = player.c + dc;
+  if(canMove(nr, nc)){
+    player.r = nr; player.c = nc;
+    drawMaze(); // redraw full maze + player
+    checkWinMaze();
+  }
+}
+
+function checkWinMaze(){
+  if(player.r === exitCell.r && player.c === exitCell.c){
+    stopMazeTimer();
+    document.getElementById('maze-result').textContent = 'Você Venceu';
+    document.getElementById('maze-result').className = 'message win';
+    document.getElementById('maze-back').classList.remove('hidden');
+  }
+}
+
+/* Maze controls (buttons + keyboard) */
+document.getElementById('up').addEventListener('click', ()=> movePlayer(-1, 0));
+document.getElementById('down').addEventListener('click', ()=> movePlayer(1, 0));
+document.getElementById('left').addEventListener('click', ()=> movePlayer(0, -1));
+document.getElementById('right').addEventListener('click', ()=> movePlayer(0, 1));
+
+document.addEventListener('keydown', (e)=>{
+  // only allow arrow control when labirinto is visible
+  if(document.getElementById('labirinto').classList.contains('hidden')) return;
+  if(e.key === 'ArrowUp') movePlayer(-1, 0);
+  if(e.key === 'ArrowDown') movePlayer(1, 0);
+  if(e.key === 'ArrowLeft') movePlayer(0, -1);
+  if(e.key === 'ArrowRight') movePlayer(0, 1);
+});
+
+/* Maze Timer */
+function startMazeTimer(){
+  stopMazeTimer();
+  mazeInterval = setInterval(()=>{
+    mazeTimer--;
+    document.getElementById('maze-timer').textContent = mazeTimer;
+    if(mazeTimer <= 0){
+      stopMazeTimer();
+      document.getElementById('maze-result').textContent = 'Você Perdeu';
+      document.getElementById('maze-result').className = 'message lose';
+      document.getElementById('maze-back').classList.remove('hidden');
+    }
+  }, 1000);
+}
+function stopMazeTimer(){ if(mazeInterval){ clearInterval(mazeInterval); mazeInterval = null; } }
+
+/* Stop memory timer helper repeated here to ensure available earlier */
+function stopMemTimer(){ if(memInterval){ clearInterval(memInterval); memInterval = null; } }
+
+/* ---------- Inicializações (estado inicial da página) ---------- */
+// Start with home visible
+show('home');
+
+// Ensure canvas baseline drawing for forca and maze are ready when used
+// (we only draw when initForca/initMaze are called by show function)
+</script>
+</body>
+</html>
